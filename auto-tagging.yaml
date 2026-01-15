@@ -1,0 +1,355 @@
+# AWS Auto-Tagging Solution for all new launch resources
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Auto-tag all new AWS resources with specified tags.
+  
+  This template is designed for AWS customers who need to implement consistent resource tagging 
+  across their AWS environment. It automatically applies specified tags to newly created resources 
+  including EC2 instances, RDS databases, S3 buckets, and Lambda functions.
+  
+  Use cases:
+  - Compliance with Partner Revenue Measurement (PRM) program
+  - Cost allocation and tracking through resource tagging
+  - Compliance requirements for mandatory resource tagging
+  - Automated governance of resource metadata
+  - Consistent tagging across multiple teams/projects
+  
+  The solution uses EventBridge rules to monitor resource creation events and triggers a Lambda 
+  function to apply the configured tags. CloudTrail is enabled to capture the necessary API calls.
+
+Parameters:
+  AutoTagKey:
+    Type: String
+    Default: aws-apn-id
+    Description: The tag key to apply to all new resources
+
+  AutoTagValue:
+    Type: String
+    Default: 11111
+    Description: The tag value to apply to all new resources
+
+Resources:
+  # ========================================
+  # Lambda Function for Auto-Tagging
+  # ========================================
+  
+  # IAM role for Lambda function
+  AutoTagLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AutoTaggingPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - tag:TagResources
+                  - ec2:CreateTags
+                  - rds:AddTagsToResource
+                  - s3:PutBucketTagging
+                  - lambda:TagResource
+                  - iam:TagRole
+                  - iam:TagUser
+                  - iam:TagPolicy
+                  - elasticloadbalancing:AddTags
+                  - autoscaling:CreateOrUpdateTags
+                  - cloudformation:TagResource
+                  - logs:TagLogGroup
+                Resource: '*'
+
+  # Lambda function for auto-tagging
+  AutoTagFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-auto-tag'
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt AutoTagLambdaRole.Arn
+      Environment:
+        Variables:
+          TAG_KEY: !Ref AutoTagKey
+          TAG_VALUE: !Ref AutoTagValue
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          
+          def lambda_handler(event, context):
+              print(f"Received event: {json.dumps(event)}")
+              
+              tag_key = os.environ['TAG_KEY']
+              tag_value = os.environ['TAG_VALUE']
+              
+              # Extract details from CloudTrail event
+              detail = event.get('detail', {})
+              event_name = detail.get('eventName')
+              
+              if not event_name:
+                  print("No eventName found in event detail")
+                  return
+              
+              # Extract resource information based on event type
+              resource_arns = []
+              
+              if event_name == 'RunInstances':
+                  # EC2 instances
+                  instances = detail.get('responseElements', {}).get('instancesSet', {}).get('items', [])
+                  for instance in instances:
+                      instance_id = instance.get('instanceId')
+                      if instance_id:
+                          region = event.get('detail', {}).get('awsRegion', 'us-east-1')
+                          account_id = event.get('account')
+                          arn = f"arn:aws:ec2:{region}:{account_id}:instance/{instance_id}"
+                          resource_arns.append(arn)
+              
+              elif event_name in ['CreateDBInstance', 'CreateDBCluster']:
+                  # RDS instances/clusters
+                  db_instance = detail.get('responseElements', {}).get('dBInstance')
+                  if db_instance:
+                      db_arn = db_instance.get('dBInstanceArn')
+                      if db_arn:
+                          resource_arns.append(db_arn)
+              
+              elif event_name == 'CreateBucket':
+                  # S3 buckets
+                  bucket_name = detail.get('requestParameters', {}).get('bucketName')
+                  if bucket_name:
+                      arn = f"arn:aws:s3:::{bucket_name}"
+                      resource_arns.append(arn)
+              
+              elif event_name == 'CreateFunction':
+                  # Lambda functions
+                  function_arn = detail.get('responseElements', {}).get('functionArn')
+                  if function_arn:
+                      resource_arns.append(function_arn)
+              
+              if not resource_arns:
+                  print(f"No resource ARNs extracted from {event_name} event")
+                  return
+              
+              # Process each resource ARN
+              for resource_arn in resource_arns:
+                  try:
+                      # Use Resource Groups Tagging API for universal tagging
+                      tagging_client = boto3.client('resourcegroupstaggingapi')
+                      
+                      # Apply the auto tag
+                      tagging_client.tag_resources(
+                          ResourceARNList=[resource_arn],
+                          Tags={
+                              tag_key: tag_value
+                          }
+                      )
+                      
+                      print(f"Successfully tagged resource {resource_arn} with {tag_key}={tag_value}")
+                      
+                  except Exception as e:
+                      print(f"Error tagging resource {resource_arn}: {str(e)}")
+                      # Continue processing other resources
+
+  # ========================================
+  # EventBridge Rules for Resource Creation
+  # ========================================
+  
+  # EventBridge rule for EC2 instances
+  EC2CreationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-ec2-creation'
+      Description: Monitor EC2 instance creation
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - ec2.amazonaws.com
+          eventName:
+            - RunInstances
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt AutoTagFunction.Arn
+          Id: EC2AutoTagTarget
+
+  # EventBridge rule for RDS instances
+  RDSCreationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-rds-creation'
+      Description: Monitor RDS instance creation
+      EventPattern:
+        source:
+          - aws.rds
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - rds.amazonaws.com
+          eventName:
+            - CreateDBInstance
+            - CreateDBCluster
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt AutoTagFunction.Arn
+          Id: RDSAutoTagTarget
+
+  # EventBridge rule for S3 buckets
+  S3CreationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-s3-creation'
+      Description: Monitor S3 bucket creation
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - s3.amazonaws.com
+          eventName:
+            - CreateBucket
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt AutoTagFunction.Arn
+          Id: S3AutoTagTarget
+
+  # EventBridge rule for Lambda functions
+  LambdaCreationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-lambda-creation'
+      Description: Monitor Lambda function creation
+      EventPattern:
+        source:
+          - aws.lambda
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - lambda.amazonaws.com
+          eventName:
+            - CreateFunction
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt AutoTagFunction.Arn
+          Id: LambdaAutoTagTarget
+
+  # Permissions for EventBridge to invoke Lambda
+  EC2LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AutoTagFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EC2CreationRule.Arn
+
+  RDSLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AutoTagFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt RDSCreationRule.Arn
+
+  S3LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AutoTagFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt S3CreationRule.Arn
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AutoTagFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt LambdaCreationRule.Arn
+
+  # ========================================
+  # CloudTrail for API Logging
+  # ========================================
+  
+  # S3 bucket for CloudTrail logs
+  # amazonq-ignore-next-line
+  AutoTagCloudTrailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-autotag-trail-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 bucket policy for CloudTrail
+  AutoTagCloudTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AutoTagCloudTrailBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:aws:s3:::${AutoTagCloudTrailBucket}'
+              - !Sub 'arn:aws:s3:::${AutoTagCloudTrailBucket}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          - Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub 'arn:aws:s3:::${AutoTagCloudTrailBucket}/*'
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': bucket-owner-full-control
+          - Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !Sub 'arn:aws:s3:::${AutoTagCloudTrailBucket}'
+
+  # CloudTrail for capturing resource creation API calls
+  # amazonq-ignore-next-line
+  AutoTagCloudTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: AutoTagCloudTrailBucketPolicy
+    Properties:
+      TrailName: !Sub '${AWS::StackName}-autotag-trail'
+      S3BucketName: !Ref AutoTagCloudTrailBucket
+      IncludeGlobalServiceEvents: true
+      IsMultiRegionTrail: true
+      EnableLogFileValidation: true
+      IsLogging: true
+      EventSelectors:
+        - ReadWriteType: All
+          IncludeManagementEvents: true
+          DataResources: []
+
+Outputs:
+  AutoTagFunctionArn:
+    Description: ARN of the auto-tagging Lambda function
+    Value: !GetAtt AutoTagFunction.Arn
+
+  CloudTrailArn:
+    Description: ARN of the CloudTrail for auto-tagging
+    Value: !GetAtt AutoTagCloudTrail.Arn
