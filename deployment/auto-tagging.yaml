@@ -334,7 +334,6 @@ Resources:
             Resource: !Sub 'arn:aws:s3:::${AutoTagCloudTrailBucket}'
 
   # CloudTrail for capturing resource creation API calls
-  # amazonq-ignore-next-line
   AutoTagCloudTrail:
     Type: AWS::CloudTrail::Trail
     DependsOn: AutoTagCloudTrailBucketPolicy

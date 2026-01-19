@@ -13,7 +13,7 @@ Description: |
   - Uses Amazon EventBridge to detect tag changes and trigger AWS Lambda remediation
   - Includes AWS CloudTrail logging for audit and troubleshooting
   
-  The solution helps ensure critical tags remain intact even if accidentally or maliciously modified.
+  This sample solution helps critical tags remain intact even if accidentally or maliciously modified.
 
 Parameters:
   OriginalTagKey:
