@@ -64,19 +64,32 @@ See [RISK_ASSESSMENT.md](RISK_ASSESSMENT.md) for complete details and mitigation
      --capabilities CAPABILITY_IAM
    ```
 
-## Architecture
+### Architecture Diagrams
+
+Visual representations of the solution architecture:
+
+**Auto-Tagging Solution:**
+
+![Auto-Tagging Architecture](generated-diagrams/auto-tagging-solution.png)
+
+**Tag Monitoring & Remediation Solution:**
+
+![Tag Monitoring Architecture](generated-diagrams/tag-monitoring-solution.png)
 
 ### Auto-Tagging Flow
 1. Resource created (EC2, RDS, S3, Lambda)
-2. CloudTrail logs API call
+2. CloudTrail logs API call (5-15 min delay)
 3. EventBridge detects creation event
 4. Lambda function applies configured tags
+5. Resource is tagged with aws-apn-id
 
 ### Tag Remediation Flow
 1. Tag modified or removed on monitored resource
-2. CloudTrail logs tag change
+2. CloudTrail logs tag change (5-15 min delay)
 3. EventBridge detects tag change event
-4. Lambda function restores original tag value
+4. Lambda function validates resource is monitored
+5. Lambda restores original tag value
+6. Action logged to CloudWatch for audit
 
 ## Cost Estimate
 
