@@ -1,3 +1,7 @@
+# Copyright (c) 2026 AWS
+# Licensed under the MIT
+# THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND
+
 # AWS Resource Tag Monitoring and Auto-Remediation Template
 
 AWSTemplateFormatVersion: '2010-09-09'
@@ -14,6 +18,53 @@ Description: |
   - Includes AWS CloudTrail logging for audit and troubleshooting
   
   This sample solution helps critical tags remain intact even if accidentally or maliciously modified.
+
+  Risk Assessment:
+  
+  SECURITY RISKS:
+  - IAM Permissions Scope: Lambda functions require broad tagging permissions (Resource: '*'). 
+    Mitigation: Restrict to specific resource ARN patterns, implement permission boundaries.
+  - Tag Conflicts: Automatic remediation may override legitimate changes by authorized users.
+    Mitigation: Implement whitelist for authorized roles, add grace period, send notifications.
+  - Lambda Security: Functions execute code that modifies resources without VPC isolation.
+    Mitigation: Implement input validation, consider VPC deployment, enable code signing.
+  - CloudTrail Security: Logs contain sensitive API data and require protection.
+    Mitigation: Enable S3 versioning, implement Object Lock, use KMS encryption.
+  
+  OPERATIONAL RISKS:
+  - Automatic Remediation Override: May interfere with incident response or maintenance.
+    Mitigation: Integrate with Change Calendar, implement emergency override mechanism.
+  - Lambda Failures: Function timeouts or throttling could cause compliance gaps.
+    Mitigation: Configure DLQ, implement retry logic, increase timeout to 60s.
+  - CloudTrail Dependency: Event delivery delays (5-15 min) impact real-time tagging.
+    Mitigation: Accept eventual consistency, implement periodic compliance scans.
+  
+  COST IMPLICATIONS:
+  - CloudTrail Storage: $1-10/month for S3 storage (scales with API call volume).
+  - Lambda Invocations: $0.02-2/month (depends on resource creation frequency).
+  - Total Estimated Cost: $1-13/month for typical workloads.
+  - Cost Optimization: Implement S3 lifecycle policies, right-size Lambda memory.
+  
+  COMPLIANCE CONSIDERATIONS:
+  - Audit Trail Requirements: CloudTrail provides complete audit trail of tag changes.
+    Action Required: Enable S3 versioning, implement Object Lock for immutability.
+  - Data Retention: Logs must be retained per regulatory requirements (typically 7 years).
+    Action Required: Implement S3 lifecycle policies with appropriate retention.
+  - Change Management: Automated changes must be documented and authorized.
+    Action Required: Integrate with ITSM tools, implement approval workflow for critical resources.
+  - Access Control: Proper IAM controls required to prevent unauthorized modifications.
+    Action Required: Implement least privilege, segregation of duties, regular access reviews.
+  - Data Privacy: CloudTrail logs may contain PII (usernames, IP addresses).
+    Action Required: Conduct Privacy Impact Assessment, implement DSAR procedures.
+  
+  CRITICAL ACTION ITEMS BEFORE DEPLOYMENT:
+  1. Enable S3 versioning (currently Suspended - must change to Enabled)
+  2. Implement S3 Object Lock for audit trail immutability
+  3. Replace wildcard IAM permissions with specific resource ARNs
+  4. Implement emergency override mechanism (DynamoDB exemptions table)
+  5. Configure KMS encryption for CloudTrail (replace AES256 with CMK)
+  
+  For complete risk assessment and mitigation strategies, see RISK_ASSESSMENT.md 
 
 Parameters:
   OriginalTagKey:
