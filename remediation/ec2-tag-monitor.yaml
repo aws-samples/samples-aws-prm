@@ -205,7 +205,7 @@ Resources:
     Properties:
       BucketName: !Sub '${AWS::StackName}-cloudtrail-${AWS::AccountId}'
       VersioningConfiguration:
-        Status: Suspended
+        Status: Enabled
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:

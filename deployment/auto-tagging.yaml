@@ -337,7 +337,7 @@ Resources:
     Properties:
       BucketName: !Sub '${AWS::StackName}-autotag-trail-${AWS::AccountId}'
       VersioningConfiguration:
-        Status: Suspended
+        Status: Enabled
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
