@@ -10,8 +10,8 @@ Description: |
   - When a monitored tag is modified or removed, automatically restores it to the original value
   - Useful for maintaining compliance, cost allocation, and resource governance
   - Supports any AWS resource that can be tagged via the Resource Groups Tagging API
-  - Uses EventBridge to detect tag changes and trigger Lambda remediation
-  - Includes CloudTrail logging for audit and troubleshooting
+  - Uses Amazon EventBridge to detect tag changes and trigger AWS Lambda remediation
+  - Includes AWS CloudTrail logging for audit and troubleshooting
   
   The solution helps ensure critical tags remain intact even if accidentally or maliciously modified.
 

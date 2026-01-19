@@ -5,7 +5,7 @@ Description: |
   
   This template is designed for AWS customers who need to implement consistent resource tagging 
   across their AWS environment. It automatically applies specified tags to newly created resources 
-  including EC2 instances, RDS databases, S3 buckets, and Lambda functions.
+  including Amazon EC2 instances, Amazon RDS databases, Amazon S3 buckets, and AWS Lambda functions.
   
   Use cases:
   - Compliance with Partner Revenue Measurement (PRM) program
@@ -14,8 +14,8 @@ Description: |
   - Automated governance of resource metadata
   - Consistent tagging across multiple teams/projects
   
-  The solution uses EventBridge rules to monitor resource creation events and triggers a Lambda 
-  function to apply the configured tags. CloudTrail is enabled to capture the necessary API calls.
+  The solution uses Amazon EventBridge rules to monitor resource creation events and triggers a Lambda 
+  function to apply the configured tags. AWS CloudTrail is enabled to capture the necessary API calls.
 
 Parameters:
   AutoTagKey:
