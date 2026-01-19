@@ -6,18 +6,9 @@
 
 AWSTemplateFormatVersion: '2010-09-09'
 Description: |
-  This template creates an automated solution to monitor and remediate AWS resource tag changes.
+  This template creates an automated solution to monitor and remediate AWS resource tag changes. This sample solution helps critical tags remain intact even if accidentally or maliciously modified. 
   
-  Use Case:
-  - Compliance with Partner Revenue Measurement (PRM) program
-  - Monitors specified AWS resources for changes to critical tags
-  - When a monitored tag is modified or removed, automatically restores it to the original value
-  - Useful for maintaining compliance, cost allocation, and resource governance
-  - Supports any AWS resource that can be tagged via the Resource Groups Tagging API
-  - Uses Amazon EventBridge to detect tag changes and trigger AWS Lambda remediation
-  - Includes AWS CloudTrail logging for audit and troubleshooting
-  
-  This sample solution helps critical tags remain intact even if accidentally or maliciously modified.
+  Customers can use this sample to build their own automation for their unique environment needs. 
 
   Risk Assessment:
   

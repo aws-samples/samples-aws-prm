@@ -7,20 +7,15 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: |
   Auto-tag all new AWS resources with specified tags.
   
-  This template is designed for AWS customers who need to implement consistent resource tagging 
+  This template is designed to designed to support AWS customers who need to implement consistent resource tagging 
   across their AWS environment. It automatically applies specified tags to newly created resources 
   including Amazon EC2 instances, Amazon RDS databases, Amazon S3 buckets, and AWS Lambda functions.
-  
-  Use cases:
-  - Compliance with Partner Revenue Measurement (PRM) program
-  - Cost allocation and tracking through resource tagging
-  - Compliance requirements for mandatory resource tagging
-  - Automated governance of resource metadata
-  - Consistent tagging across multiple teams/projects
   
   The solution uses Amazon EventBridge rules to monitor resource creation events and triggers a Lambda 
   function to apply the configured tags. AWS CloudTrail is enabled to capture the necessary API calls.
   
+  Customers can use this sample to build their own automation for their unique environment needs.
+
   Risk Assessment:
   
   SECURITY RISKS:
