@@ -7,69 +7,31 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: |
   Auto-tag all new AWS resources with specified tags.
   
-  This template is designed to designed to support AWS customers who need to implement consistent resource tagging 
-  across their AWS environment. It automatically applies specified tags to newly created resources 
-  including Amazon EC2 instances, Amazon RDS databases, Amazon S3 buckets, and AWS Lambda functions.
+  This template automatically applies specified tags to newly created resources 
+  (Amazon EC2, Amazon RDS, Amazon S3, AWS Lambda) using Amazon EventBridge and AWS Lambda.
   
-  The solution uses Amazon EventBridge rules to monitor resource creation events and triggers a Lambda 
-  function to apply the configured tags. AWS CloudTrail is enabled to capture the necessary API calls.
+  IMPORTANT: Review RISK_ASSESSMENT.md before deployment.
   
-  Customers can use this sample to build their own automation for their unique environment needs.
-
-  Risk Assessment:
+  Key Security Considerations:
+  - AWS Identity and Access Management (IAM) permissions use wildcards (Resource: '*') - restrict to specific ARNs in production
+  - AWS CloudTrail logs contain sensitive data - enable Amazon S3 versioning and AWS KMS encryption
+  - AWS Lambda functions need Amazon Virtual Private Cloud (Amazon VPC) isolation for enhanced security
+  - Implement monitoring for AWS Lambda failures and untagged resources
   
-  SECURITY RISKS:
-  - IAM Permissions Scope: Lambda functions require broad tagging permissions (Resource: '*'). 
-    Mitigation: Restrict to specific resource ARN patterns, implement permission boundaries.
-  - Tag Conflicts: Multiple tagging systems may conflict causing race conditions.
-    Mitigation: Implement coordination logic, use idempotent tagging operations.
-  - Lambda Security: Functions execute code that modifies resources without VPC isolation.
-    Mitigation: Implement input validation, consider VPC deployment, enable code signing.
-  - CloudTrail Security: Logs contain sensitive API data and require protection.
-    Mitigation: Enable S3 versioning, implement Object Lock, use KMS encryption.
+  Key Operational Considerations:
+  - AWS CloudTrail has 5-15 minute delay - tagging is eventually consistent
+  - Configure Dead Letter Queue for AWS Lambda error handling
+  - Test Amazon EventBridge patterns thoroughly before production use
   
-  OPERATIONAL RISKS:
-  - Lambda Failures: Function timeouts or throttling could result in untagged resources.
-    Mitigation: Configure DLQ, implement retry logic, increase timeout to 60s.
-  - EventBridge Rule Failures: Event pattern mismatch may cause missed tagging events.
-    Mitigation: Test event patterns thoroughly, implement periodic compliance scans.
-  - CloudTrail Dependency: Event delivery delays (5-15 min) mean tagging is not immediate.
-    Mitigation: Accept eventual consistency, use AWS Config for backup detection.
-  - High Volume Impact: Large-scale resource creation may cause Lambda throttling.
-    Mitigation: Set reserved concurrency, implement SQS batching for high volume.
+  Estimated Monthly Cost: $1-13 (AWS CloudTrail storage + AWS Lambda invocations)
   
-  COST IMPLICATIONS:
-  - CloudTrail Storage: $1-10/month for S3 storage (scales with API call volume).
-  - Lambda Invocations: $0.02-2/month (depends on resource creation frequency).
-  - EventBridge Events: $0-1/month (AWS service events are free).
-  - Total Estimated Cost: $1-13/month for typical workloads.
-  - Cost Optimization: Implement S3 lifecycle policies, right-size Lambda memory, filter events.
+  Critical Actions Before Deployment:
+  1. Enable Amazon S3 versioning and Object Lock for audit compliance
+  2. Replace wildcard IAM permissions with specific resource ARNs
+  3. Configure AWS Key Management Service (AWS KMS) encryption for AWS CloudTrail
+  4. Set up Amazon CloudWatch alarms for monitoring
   
-  COMPLIANCE CONSIDERATIONS:
-  - Audit Trail Requirements: CloudTrail provides complete audit trail of auto-tagging actions.
-    Action Required: Enable S3 versioning, implement Object Lock for immutability.
-  - Data Retention: Logs must be retained per regulatory requirements (typically 7 years).
-    Action Required: Implement S3 lifecycle policies with appropriate retention.
-  - Change Management: Automated tagging must be documented and authorized.
-    Action Required: Document tagging policies, integrate with governance frameworks.
-  - Access Control: Proper IAM controls required to prevent unauthorized modifications.
-    Action Required: Implement least privilege, segregation of duties, regular access reviews.
-  - Data Privacy: CloudTrail logs may contain PII (usernames, IP addresses).
-    Action Required: Conduct Privacy Impact Assessment, implement DSAR procedures.
-  - Tag Governance: Ensure auto-applied tags comply with organizational tagging standards.
-    Action Required: Validate tag keys/values against approved taxonomy, document exceptions.
-  
-  CRITICAL ACTION ITEMS BEFORE DEPLOYMENT:
-  1. Enable S3 versioning (currently Suspended - must change to Enabled)
-  2. Implement S3 Object Lock for audit trail immutability
-  3. Replace wildcard IAM permissions with specific resource ARNs
-  4. Configure KMS encryption for CloudTrail (replace AES256 with CMK)
-  5. Implement monitoring and alerting for Lambda failures and untagged resources
-  6. Document approved tag keys and values in organizational tagging policy
-  
-  For complete risk assessment and mitigation strategies, see RISK_ASSESSMENT.md
-
-  Risk Assessment:
+  See RISK_ASSESSMENT.md for complete details.
   
 Parameters:
   AutoTagKey:
