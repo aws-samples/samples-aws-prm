@@ -61,10 +61,6 @@ Resources:
                   - tag:GetResources
                   - ec2:CreateTags
                   - ec2:DeleteTags
-                  - rds:AddTagsToResource
-                  - s3:PutBucketTagging
-                  - lambda:TagResource
-                  - iam:TagRole
                 Resource: '*'
 
   # Lambda function to restore resource tags

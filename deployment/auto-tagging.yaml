@@ -58,13 +58,6 @@ Resources:
                   - rds:AddTagsToResource
                   - s3:PutBucketTagging
                   - lambda:TagResource
-                  - iam:TagRole
-                  - iam:TagUser
-                  - iam:TagPolicy
-                  - elasticloadbalancing:AddTags
-                  - autoscaling:CreateOrUpdateTags
-                  - cloudformation:TagResource
-                  - logs:TagLogGroup
                 Resource: '*'
 
   # Lambda function for auto-tagging
