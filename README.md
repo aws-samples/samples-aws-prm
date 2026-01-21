@@ -11,7 +11,7 @@ Under the Shared Resposability Model, partners and customer using this project n
 - Securing IAM permissions and implement least privilege
 - Enabling encryption (AWS Key Management Service (AWS KMS)) for AWS CloudTrail logs
 - Implementing Amazon S3 Object Lock for log immutability
-- Monitoring and respond to security events
+- Monitoring and responding to security events
 - Facilitating compliance with organizational policies
 - Implementing any other security and operational change that apply to their own industry
 
@@ -23,7 +23,7 @@ Under the Shared Resposability Model, partners and customer using this project n
 
 ## Risk Assessment
 
-**IMPORTANT:** Before deploying this solution, please review the comprehensive [Risk Assessment](RISK_ASSESSMENT.md) document, which covers:
+**IMPORTANT:** Before deploying this solution, please review the [Risk Assessment](RISK_ASSESSMENT.md) document, which covers:
 
 - Security risks (IAM permissions, tag conflicts, Lambda security)
 - Operational risks (automatic remediation overrides, Lambda failures)
