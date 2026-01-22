@@ -2,12 +2,15 @@
 
 ## Overview
 
-This repository contains AWS CloudFormation templates for automated AWS resource tagging and tag remediation, designed for compliance with the Partner Revenue Measurement (PRM) program and other governance requirements. 
+Partner Revenue Measurement tracks AWS service consumption driven by partner products through resource tags.
 
-This is a sample project that customers can use a first step to build their own automation. The templates in this project are not meant to be deploy in production environments, but rather to ease the adoption of Partner Revenue Measurement (PRM) providing partners/customers with sample ideas of how they can operationalize the implementation of PRM tagging. 
+This repository contains scripts in the form of AWS CloudFormation templates for automated AWS resource tagging and tag remediation, to assist you remain in compliance with the AWS Partner Revenue Measurement (PRM) program governance requirements.
 
-Under the Shared Resposability Model, partners and customer using this project need to enhance the templates to adapt it to their onw environments by (if applicable):
+You can use the scripts in this repository to build your own automation for your specific situation. Please make sure to test these in a sandbox environment and follow your organisation’s SDLC practices for production deployment.
 
+These scripts meant to ease the adoption of Partner Revenue Measurement (PRM) providing you with ideas of how they can operationalize the implementation of PRM tagging requirements.
+
+Under the Shared Responsibility Model, partners and customers using this project need to enhance the templates to adapt it to their own environments by (including but not limited to):
 - Securing IAM permissions and implement least privilege
 - Enabling encryption (AWS Key Management Service (AWS KMS)) for AWS CloudTrail logs
 - Implementing Amazon S3 Object Lock for log immutability
@@ -19,17 +22,6 @@ Under the Shared Resposability Model, partners and customer using this project n
 
 1. **Auto-Tagging** (`deployment/auto-tagging.yaml`): Automatically tags newly created AWS resources (Amazon Elastic Compute Cloud (Amazon EC2), Amazon Relational Database Service (Amazon RDS), Amazon Simple Storage Service (Amazon S3), AWS Lambda)
 2. **Tag Monitoring & Remediation** (`remediation/ec2-tag-monitor.yaml`): Monitors and automatically restores critical tags if modified or removed
-
-
-## Risk Assessment
-
-**IMPORTANT:** Before deploying this solution, please review the [Risk Assessment](RISK_ASSESSMENT.md) document, which covers:
-
-- Security risks (IAM permissions, tag conflicts, Lambda security)
-- Operational risks (automatic remediation overrides, Lambda failures)
-- Cost implications (CloudTrail storage, Lambda invocations)
-- Compliance considerations (audit trails, data retention, privacy)
-
 
 ## Getting Started
 
@@ -88,17 +80,6 @@ Visual representations of the solution architecture:
 4. AWS Lambda function validates resource is monitored
 5. AWS Lambda restores original tag value
 6. Action logged to Amazon CloudWatch for audit
-
-## Security Considerations
-
-This solution requires careful security configuration:
-
-- AWS Lambda functions need broad tagging permissions
-- AWS CloudTrail logs may contain sensitive API call information
-- Automatic remediation may override legitimate changes
-- Emergency override mechanism required for incident response
-
-See [RISK_ASSESSMENT.md](RISK_ASSESSMENT.md) for complete security analysis and mitigation strategies.
 
 ## License
 
