@@ -4,36 +4,9 @@
 # AWS Resource Tag Monitoring and Auto-Remediation Template
 
 AWSTemplateFormatVersion: '2010-09-09'
-Description: |
-  Monitor and automatically restore critical AWS resource tags if modified or removed.
-  
-  This template detects tag changes on monitored resources and automatically restores 
-  original values using Amazon EventBridge and AWS Lambda.
-  
-  IMPORTANT: Review RISK_ASSESSMENT.md before deployment.
-  
-  Key Security Considerations:
-  - AWS Identity and Access Management (IAM) permissions use wildcards (Resource: '*') - restrict to specific ARNs in production
-  - Automatic remediation may override legitimate changes - implement authorization whitelist
-  - AWS CloudTrail logs contain sensitive data - enable Amazon S3 versioning and AWS KMS encryption
-  - AWS Lambda functions need Amazon Virtual Private Cloud (Amazon VPC) isolation for enhanced security
-  
-  Key Operational Considerations:
-  - AWS CloudTrail has 5-15 minute delay - remediation is not real-time
-  - May interfere with incident response - implement emergency override mechanism
-  - Configure Dead Letter Queue for AWS Lambda error handling
-  - Integrate with AWS Systems Manager Change Calendar for maintenance windows
-  
-  Estimated Monthly Cost: $1-13 (AWS CloudTrail storage + AWS Lambda invocations)
-  
-  Critical Actions Before Deployment:
-  1. Enable Amazon S3 versioning and Object Lock for audit compliance
-  2. Replace wildcard IAM permissions with specific resource ARNs
-  3. Implement emergency override mechanism (Amazon DynamoDB exemptions table)
-  4. Configure AWS Key Management Service (AWS KMS) encryption for AWS CloudTrail
-  5. Set up Amazon CloudWatch alarms and Amazon SNS notifications
-  
-  See RISK_ASSESSMENT.md for complete details. 
+Description: >-
+  Monitor and auto-restore critical AWS resource tags if modified or removed.
+  Uses EventBridge and Lambda for detection and remediation.
 
 Parameters:
   OriginalTagKey:

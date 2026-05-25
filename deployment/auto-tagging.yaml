@@ -3,35 +3,9 @@
 
 # AWS Auto-Tagging Solution for all new launch resources
 AWSTemplateFormatVersion: '2010-09-09'
-Description: |
-  Auto-tag all new AWS resources with specified tags.
-  
-  This template automatically applies specified tags to newly created resources 
-  (Amazon EC2, Amazon RDS, Amazon S3, AWS Lambda) using Amazon EventBridge and AWS Lambda.
-  
-  IMPORTANT: Review RISK_ASSESSMENT.md before deployment.
-  
-  Key Security Considerations:
-  - AWS Identity and Access Management (IAM) permissions use wildcards (Resource: '*') - restrict to specific ARNs in production
-  - AWS CloudTrail logs contain sensitive data - enable Amazon S3 versioning and AWS KMS encryption
-  - AWS Lambda functions need Amazon Virtual Private Cloud (Amazon VPC) isolation for enhanced security
-  - Implement monitoring for AWS Lambda failures and untagged resources
-  
-  Key Operational Considerations:
-  - AWS CloudTrail has 5-15 minute delay - tagging is eventually consistent
-  - Configure Dead Letter Queue for AWS Lambda error handling
-  - Test Amazon EventBridge patterns thoroughly before production use
-  
-  Estimated Monthly Cost: $1-13 (AWS CloudTrail storage + AWS Lambda invocations)
-  
-  Critical Actions Before Deployment:
-  1. Enable Amazon S3 versioning and Object Lock for audit compliance
-  2. Replace wildcard IAM permissions with specific resource ARNs
-  3. Configure AWS Key Management Service (AWS KMS) encryption for AWS CloudTrail
-  4. Set up Amazon CloudWatch alarms for monitoring
-  
-  See RISK_ASSESSMENT.md for complete details.
-  
+Description: >-
+  Auto-tag new AWS resources (EC2, RDS, S3, Lambda) using EventBridge and Lambda.
+  Uses CloudTrail for API event capture.
 Parameters:
   AutoTagKey:
     Type: String
