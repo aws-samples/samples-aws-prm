@@ -1,56 +1,57 @@
-# AWS Resource Tag Automation Solution
+# AWS Partner Revenue Measurement (PRM) — Sample Tagging Automation
+
+## Important Notices
+
+> **This is a sample project.** It is provided as a starting point and requires adaptation for real-world use. Do not deploy to production without completing the steps below.
+
+- **Security review required.** These templates use broad IAM permissions (e.g., `Resource: '*'`) and lack VPC isolation, encryption, and monitoring. A thorough security review and hardening pass is mandatory before any production deployment.
+- **Cost implications.** Deploying these templates creates AWS resources (CloudTrail trails, S3 buckets, Lambda functions, EventBridge rules, and optionally Fargate tasks) that incur ongoing charges. Review the cost estimates in each automation's README and monitor your AWS bill.
+- **Shared responsibility.** Under the AWS Shared Responsibility Model, you are responsible for securing, testing, and maintaining any infrastructure deployed from this project.
 
 ## Overview
 
-Partner Revenue Measurement tracks AWS service consumption driven by partner products through resource tags.
+This repository contains three sample automations to help AWS Partners operationalize the [AWS Partner Revenue Measurement (PRM)](https://docs.aws.amazon.com/partner-central/latest/getting-started/partner-revenue-measurement.html) tagging requirements. PRM tracks AWS service consumption driven by partner products through resource tags.
 
-This repository contains scripts in the form of AWS CloudFormation templates for automated AWS resource tagging and tag remediation, to assist you remain in compliance with the AWS Partner Revenue Measurement (PRM) program governance requirements.
+## Automations
 
-You can use the scripts in this repository to build your own automation for your specific situation. Please make sure to test these in a sandbox environment and follow your organisation’s SDLC practices for production deployment.
+| # | Automation | Location | Description |
+|---|---|---|---|
+| 1 | **Auto-Tagging** | [`deployment/`](./deployment/) | Automatically applies the `aws-apn-id` tag to newly created AWS resources (EC2, RDS, S3, Lambda) in real time using EventBridge and Lambda. |
+| 2 | **Tag Remediation** | [`remediation/`](./remediation/) | Monitors critical resource tags and automatically restores them if they are modified or removed. |
+| 3 | **Historical Backfill** | [`backfill/`](./backfill/) | Scans CloudTrail logs stored in S3 to retroactively tag resources created by partner IAM roles. Runs as a Fargate container with no timeout constraints. |
 
-These scripts meant to ease the adoption of Partner Revenue Measurement (PRM) providing you with ideas of how they can operationalize the implementation of PRM tagging requirements.
+## Prerequisites
 
-Under the Shared Responsibility Model, partners and customers using this project need to enhance the templates to adapt it to their own environments by (including but not limited to):
-- Securing IAM permissions and implement least privilege
-- Enabling encryption (AWS Key Management Service (AWS KMS)) for AWS CloudTrail logs
-- Implementing Amazon S3 Object Lock for log immutability
-- Monitoring and responding to security events
-- Facilitating compliance with organizational policies
-- Implementing any other security and operational change that apply to their own industry
+- An AWS account with permissions to deploy CloudFormation stacks and create IAM roles
+- AWS CLI v2 installed and configured
+- Docker (for the backfill container only)
 
-## Solution Components
+## Before You Deploy
 
-1. **Auto-Tagging** (`deployment/auto-tagging.yaml`): Automatically tags newly created AWS resources (Amazon Elastic Compute Cloud (Amazon EC2), Amazon Relational Database Service (Amazon RDS), Amazon Simple Storage Service (Amazon S3), AWS Lambda)
-2. **Tag Monitoring & Remediation** (`remediation/ec2-tag-monitor.yaml`): Monitors and automatically restores critical tags if modified or removed
+1. **Review and adapt** each template's parameters, IAM policies, and resource configurations for your environment.
+2. **Restrict IAM permissions** — replace wildcard (`*`) resources with specific ARNs.
+3. **Enable encryption** — configure AWS KMS for CloudTrail logs and S3 buckets.
+4. **Test in a sandbox** — deploy to a non-production account first.
+5. **Set up monitoring** — add CloudWatch alarms and SNS notifications for Lambda errors and untagged resources.
+6. **Estimate costs** — see each automation's README for cost details.
 
-## Getting Started
+## Repository Structure
 
-### Prerequisites
+```
+.
+├── deployment/          # Auto-tagging CloudFormation template
+├── remediation/         # Tag remediation CloudFormation template
+├── backfill/            # Historical backfill container (Dockerfile + script)
+├── troubleshooting/     # Troubleshooting guides (placeholder)
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
+└── LICENSE
+```
 
-- AWS Account with appropriate permissions
-- AWS CLI configured
-- AWS CloudFormation deployment permissions
+## License
 
-### Deployment
+This project is licensed under the MIT-0 License. See [LICENSE](./LICENSE).
 
-1. **Deploy Auto-Tagging Solution**:
-   ```bash
-   aws cloudformation create-stack \
-     --stack-name prm-auto-tagging \
-     --template-body file://deployment/auto-tagging.yaml \
-     --parameters ParameterKey=AutoTagKey,ParameterValue=aws-apn-id \
-                  ParameterKey=AutoTagValue,ParameterValue=pc:YOUR-ID-HERE \
-     --capabilities CAPABILITY_IAM
-   ```
+## Contributing
 
-2. **Deploy Tag Monitoring & Remediation**:
-   ```bash
-   aws cloudformation create-stack \
-     --stack-name prm-tag-monitor \
-     --template-body file://remediation/ec2-tag-monitor.yaml \
-     --parameters ParameterKey=OriginalTagKey,ParameterValue=aws-apn-id \
-                  ParameterKey=OriginalTagValue,ParameterValue=pc:YOUR-ID-HERE \
-                  ParameterKey=ResourceArns,ParameterValue="arn:aws:ec2:region:account:instance/i-xxx" \
-     --capabilities CAPABILITY_IAM
-   ```
-
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.

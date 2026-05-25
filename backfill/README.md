@@ -1,75 +1,33 @@
-# Backfill — S3 CloudTrail Historical Tagger
+# Historical Backfill Automation
 
-Scans CloudTrail log files stored in S3 to retroactively apply `aws-apn-id`
-tags to resources created by partner IAM roles. Runs as a Fargate container
-with no timeout constraints, making it suitable for processing months or years
-of historical logs that exceed the 90-day CloudTrail LookupEvents API limit.
+## Important Notices
 
-> For the real-time auto-tagger and the 90-day Lambda-based backfill, see the
-> [root README](../README.md).
+> **Sample code — not production-ready.** This container and its configuration require security hardening, cost review, and adaptation before use in any real environment.
 
-## How it works
+- **Security review required.** The Fargate task role needs access to CloudTrail S3 logs and the Resource Groups Tagging API. Scope IAM permissions to specific buckets and resource ARNs. Ensure the container runs in a private subnet with appropriate security groups.
+- **Cost implications.** Running the Fargate task incurs compute charges (~$0.02/hour for 0.5 vCPU / 1 GB) plus S3 GET request costs. A typical backfill of one year of logs completes in 15–60 minutes, costing under $0.05. Monitor task duration for large accounts.
+- **Adapt for your environment.** Role mappings, trail bucket names, and network configuration must be customized for your AWS account and partner setup.
 
-1. Lists all `.json.gz` CloudTrail log files under
-   `s3://<TRAIL_BUCKET>/<TRAIL_PREFIX><ACCOUNT_ID>/CloudTrail/`
-2. Downloads and decompresses each log file
-3. Filters for resource-creation events (`Create*`, `Run*`, `Allocate*`,
-   `Register*`, `Import*`, `Provision*`, `Put*`, `Launch*`)
-4. Checks if the caller matches a configured partner IAM role
-5. Extracts resource ARNs from the CloudTrail response (explicit extractors
-   for EC2, SQS, Redshift, and Route 53; generic ARN scanner for everything else)
-6. Applies `aws-apn-id: pc:<product-code>` via the Resource Groups Tagging API
+## What It Does
 
-## Prerequisites
+Retroactively applies `aws-apn-id` tags to resources created by partner IAM roles by scanning historical CloudTrail logs stored in S3:
 
-- Docker installed locally (for building the container image)
-- An ECR repository to push the image to
-- A CloudTrail trail delivering logs to an S3 bucket
-- The SAM stack deployed with the `TrailBucketName` parameter set (this
-  creates the Fargate cluster, task definition, and IAM roles)
+1. Lists all `.json.gz` CloudTrail log files under the configured S3 prefix.
+2. Downloads and decompresses each log file.
+3. Filters for resource-creation events (`Create*`, `Run*`, `Allocate*`, `Register*`, `Import*`, `Provision*`, `Put*`, `Launch*`).
+4. Checks if the caller matches a configured partner IAM role.
+5. Extracts resource ARNs from the CloudTrail response (explicit extractors for EC2, SQS, Redshift, Route 53; generic ARN scanner for other services).
+6. Applies `aws-apn-id: pc:<product-code>` via the Resource Groups Tagging API.
 
-## Build and push the container image
+This is useful for tagging resources created before the real-time auto-tagging automation was deployed, or for processing logs beyond the 90-day CloudTrail `LookupEvents` API limit.
 
-```bash
-# Set your variables
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-REGION=us-east-1
-STACK_NAME=apn-prm-auto-tagger
-REPO_NAME="${STACK_NAME}-backfill"
+## Architecture
 
-# Create the ECR repository (if it doesn't exist)
-aws ecr create-repository --repository-name "$REPO_NAME" --region "$REGION" 2>/dev/null
-
-# Authenticate Docker to ECR
-aws ecr get-login-password --region "$REGION" \
-  | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
-
-# Build and push
-docker build -t "${REPO_NAME}:latest" backfill/
-docker tag "${REPO_NAME}:latest" "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}:latest"
-docker push "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}:latest"
+```
+Fargate Task → S3 (CloudTrail logs) → Parse events → Resource Groups Tagging API
 ```
 
-## Run the backfill
-
-```bash
-# Get the task definition and cluster from the stack outputs
-TASK_DEF=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-  --query "Stacks[0].Outputs[?OutputKey=='BackfillTaskDefinitionArn'].OutputValue" \
-  --output text)
-
-# Run the Fargate task (replace subnet and security group with your own)
-aws ecs run-task \
-  --cluster "${STACK_NAME}-backfill" \
-  --task-definition "$TASK_DEF" \
-  --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[subnet-xxxxx],securityGroups=[sg-xxxxx],assignPublicIp=ENABLED}"
-```
-
-The task needs outbound internet access (or VPC endpoints for S3, STS, and
-Resource Groups Tagging API) to function.
-
-## Environment variables
+## Environment Variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
@@ -79,13 +37,60 @@ Resource Groups Tagging API) to function.
 | `AWS_ACCOUNT_ID` | No | Auto-detected via STS | Account ID to scope the S3 prefix |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
 
-`ROLE_MAPPINGS`, `TRAIL_BUCKET`, and `LOG_LEVEL` are automatically set by the
-SAM template's task definition from the stack parameters.
+## Deployment
+
+### Prerequisites
+
+- Docker installed locally
+- An ECR repository to push the container image
+- A CloudTrail trail delivering logs to an S3 bucket
+- A Fargate cluster with appropriate IAM roles and networking
+
+### Build and push the container image
+
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGION=us-east-1
+REPO_NAME="prm-backfill"
+
+# Create ECR repository (if it doesn't exist)
+aws ecr create-repository --repository-name "$REPO_NAME" --region "$REGION" 2>/dev/null
+
+# Authenticate Docker to ECR
+aws ecr get-login-password --region "$REGION" \
+  | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+
+# Build and push
+docker build -t "${REPO_NAME}:latest" .
+docker tag "${REPO_NAME}:latest" "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}:latest"
+docker push "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}:latest"
+```
+
+### Run the backfill task
+
+```bash
+aws ecs run-task \
+  --cluster YOUR-CLUSTER \
+  --task-definition YOUR-TASK-DEFINITION \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx],securityGroups=[sg-xxx],assignPublicIp=ENABLED}" \
+  --overrides '{
+    "containerOverrides": [{
+      "name": "backfill",
+      "environment": [
+        {"name": "ROLE_MAPPINGS", "value": "partner-role-name=your-product-code"},
+        {"name": "TRAIL_BUCKET", "value": "your-cloudtrail-bucket"},
+        {"name": "LOG_LEVEL", "value": "INFO"}
+      ]
+    }]
+  }'
+```
+
+The task needs outbound internet access (or VPC endpoints for S3, STS, and Resource Groups Tagging API).
 
 ## Monitoring
 
-Logs are sent to CloudWatch Logs at `/ecs/<stack-name>-backfill`. Progress is
-logged every 100 files, and a summary is printed at completion:
+Logs are sent to CloudWatch Logs. Progress is logged every 100 files:
 
 ```
 Scanning s3://my-trail-bucket/AWSLogs/123456789012/CloudTrail/
@@ -94,12 +99,19 @@ Progress: 200 files processed, 27 resources tagged
 Done. 243 files processed, 31 resources tagged.
 ```
 
-## Cost estimate
+## Cleanup
 
-- Fargate (0.5 vCPU / 1 GB): ~$0.02/hour. A typical backfill of one year of
-  logs completes in 15–60 minutes, costing $0.005–$0.02.
-- S3 GET requests: $0.0004 per 1,000 requests.
-- Total for most accounts: under $0.05.
+The Fargate task stops automatically after processing all log files. To clean up:
+
+1. Delete the ECR repository and image.
+2. Remove the ECS cluster and task definition (if created manually).
+3. Delete any associated IAM roles.
+
+## Limitations
+
+- **No incremental processing.** The script scans all log files on every run. For large accounts, consider adding date-range filtering or a checkpoint mechanism.
+- **Resource must still exist.** Tagging will fail for resources that have been terminated or deleted since the CloudTrail event was recorded.
+- **Rate limits.** The Resource Groups Tagging API has rate limits. The script batches requests (20 ARNs per call) but does not implement backoff.
 
 ## License
 
