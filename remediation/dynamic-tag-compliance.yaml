@@ -49,6 +49,11 @@ Resources:
             Action: 'sts:AssumeRole'
       ManagedPolicyArns:
         - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        # AWS-managed policy granting tag/untag permissions for every service
+        # supported by the Resource Groups Tagging API. AWS keeps this policy
+        # updated as new taggable services are added, enabling service-agnostic
+        # remediation across any taggable resource ARN.
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/ResourceGroupsTaggingAPITagUntagSupportedResources'
       Policies:
         - PolicyName: DynamoDBReadAccess
           PolicyDocument:
@@ -58,23 +63,6 @@ Resources:
                 Action:
                   - 'dynamodb:GetItem'
                 Resource: !GetAtt ComplianceRegistryTable.Arn
-        - PolicyName: TaggingAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'tag:TagResources'
-                  - 'tag:GetResources'
-                  - 'ec2:CreateTags'
-                  - 'ec2:DeleteTags'
-                  - 's3:PutBucketTagging'
-                  - 's3:GetBucketTagging'
-                  - 'dynamodb:TagResource'
-                  - 'dynamodb:UntagResource'
-                  - 'lambda:TagResource'
-                  - 'lambda:UntagResource'
-                Resource: '*'
         - PolicyName: DeadLetterQueueAccess
           PolicyDocument:
             Version: '2012-10-17'
