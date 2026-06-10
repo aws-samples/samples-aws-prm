@@ -1,0 +1,472 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+# Dynamic Tag Compliance System
+# Event-driven tag compliance using DynamoDB registry, EventBridge, and Lambda
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Dynamic tag compliance system that uses a DynamoDB registry to store required
+  tags per resource ARN, detects tag changes via CloudTrail and EventBridge, and
+  automatically remediates non-compliant tags using a Lambda function.
+
+Resources:
+  # ========================================
+  # DynamoDB Compliance Registry Table
+  # ========================================
+
+  ComplianceRegistryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-ComplianceRegistry'
+      AttributeDefinitions:
+        - AttributeName: resource_arn
+          AttributeType: S
+      KeySchema:
+        - AttributeName: resource_arn
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ========================================
+  # IAM Role for Remediation Lambda
+  # ========================================
+
+  RemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-RemediationLambdaRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        # AWS-managed policy granting tag/untag permissions for every service
+        # supported by the Resource Groups Tagging API. AWS keeps this policy
+        # updated as new taggable services are added, enabling service-agnostic
+        # remediation across any taggable resource ARN.
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/ResourceGroupsTaggingAPITagUntagSupportedResources'
+      Policies:
+        - PolicyName: DynamoDBReadAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetItem'
+                Resource: !GetAtt ComplianceRegistryTable.Arn
+        - PolicyName: DeadLetterQueueAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sqs:SendMessage'
+                Resource: !GetAtt DeadLetterQueue.Arn
+
+  # ========================================
+  # SQS Dead-Letter Queue
+  # ========================================
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-DeadLetterQueue'
+      MessageRetentionPeriod: 1209600
+
+  DeadLetterQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref DeadLetterQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt DeadLetterQueue.Arn
+
+  # ========================================
+  # Remediation Lambda Function
+  # ========================================
+
+  RemediationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-RemediationLambda'
+      Runtime: python3.14
+      Handler: index.lambda_handler
+      Timeout: 30
+      Role: !GetAtt RemediationLambdaRole.Arn
+      Environment:
+        Variables:
+          COMPLIANCE_TABLE_NAME: !Ref ComplianceRegistryTable
+          LAMBDA_ROLE_ARN: !Sub '${RemediationLambdaRole.Arn}'
+      DeadLetterConfig:
+        TargetArn: !GetAtt DeadLetterQueue.Arn
+      Code:
+        ZipFile: |
+          """Remediation Lambda handler - Dynamic Tag Compliance System."""
+
+          import json
+          import logging
+          import os
+          import re
+          import time
+          from datetime import datetime, timezone
+
+          import boto3
+          from botocore.exceptions import ClientError
+
+          # --- Validation ---
+          ARN_PATTERN = re.compile(
+              r"^arn:[a-zA-Z0-9\-]+:[a-zA-Z0-9\-]+:[a-zA-Z0-9\-]*:[0-9]*:.+$"
+          )
+
+          # --- Structured Logging ---
+          logger = logging.getLogger(__name__)
+          logger.setLevel(logging.INFO)
+
+          VALID_EVENT_OUTCOMES = ("received", "skipped", "remediated", "failed")
+          OPTIONAL_FIELDS = (
+              "skip_reason",
+              "changed_tag_keys",
+              "remediated_tags",
+              "error_message",
+              "retry_count",
+          )
+
+
+          def log_event(event_outcome, resource_arn=None, **kwargs):
+              """Emit a structured JSON log entry."""
+              if event_outcome not in VALID_EVENT_OUTCOMES:
+                  raise ValueError(
+                      f"Invalid event_outcome '{event_outcome}'. "
+                      f"Must be one of: {', '.join(VALID_EVENT_OUTCOMES)}"
+                  )
+              entry = {
+                  "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  "event_outcome": event_outcome,
+              }
+              if resource_arn is not None:
+                  entry["resource_arn"] = resource_arn
+              for field in OPTIONAL_FIELDS:
+                  if field in kwargs:
+                      entry[field] = kwargs[field]
+              logger.info(json.dumps(entry))
+              return entry
+
+
+          # --- Configuration ---
+          LAMBDA_ROLE_ARN = os.environ.get("LAMBDA_ROLE_ARN", "")
+          COMPLIANCE_TABLE_NAME = os.environ.get("COMPLIANCE_TABLE_NAME", "")
+
+          MAX_ATTEMPTS = 3
+          BACKOFF_SCHEDULE = [0.2, 0.4]
+          RETRYABLE_ERROR_CODES = {"Throttling", "InternalError", "ServiceUnavailable"}
+          NON_RETRYABLE_ERROR_CODES = {"AccessDenied", "ValidationException", "ResourceNotFoundException"}
+
+          _dynamodb = boto3.resource("dynamodb")
+          _compliance_table = (
+              _dynamodb.Table(COMPLIANCE_TABLE_NAME) if COMPLIANCE_TABLE_NAME else None
+          )
+          _tagging_client = boto3.client("resourcegroupstaggingapi")
+
+
+          def lambda_handler(event, context):
+              """Handle incoming Tag Change on Resource events."""
+              detail = event.get("detail", {})
+
+              user_identity = detail.get("userIdentity", {})
+              principal_arn = user_identity.get("arn", "")
+
+              if principal_arn and principal_arn == LAMBDA_ROLE_ARN:
+                  resources = event.get("resources", [])
+                  resource_arn = resources[0] if resources else None
+                  log_event(
+                      event_outcome="skipped",
+                      resource_arn=resource_arn,
+                      skip_reason="self_invocation",
+                  )
+                  return {"statusCode": 200, "body": "Skipped: self-invocation detected"}
+
+              resource_arn = _extract_and_validate_arn(event)
+              if resource_arn is None:
+                  log_event(event_outcome="skipped", skip_reason="malformed_event")
+                  return {"statusCode": 200, "body": "Skipped: malformed event"}
+
+              changed_tag_keys = detail.get("changed-tag-keys", [])
+              log_event(
+                  event_outcome="received",
+                  resource_arn=resource_arn,
+                  changed_tag_keys=changed_tag_keys,
+              )
+
+              required_tags = _lookup_compliance_record(resource_arn)
+              if required_tags is None:
+                  return {"statusCode": 200, "body": "Event received"}
+
+              current_tags = detail.get("tags", {})
+              if _is_compliant(current_tags, required_tags):
+                  log_event(
+                      event_outcome="skipped",
+                      resource_arn=resource_arn,
+                      skip_reason="already_compliant",
+                  )
+                  return {"statusCode": 200, "body": "Skipped: already compliant"}
+
+              result = _tag_resources_with_retry(resource_arn, required_tags)
+              if result is not None:
+                  return result
+
+              log_event(
+                  event_outcome="remediated",
+                  resource_arn=resource_arn,
+                  remediated_tags=required_tags,
+              )
+              return {"statusCode": 200, "body": "Remediated"}
+
+
+          def _extract_and_validate_arn(event):
+              """Extract and validate the resource ARN from the event."""
+              resources = event.get("resources")
+              if resources is None:
+                  return None
+              if not isinstance(resources, list):
+                  return None
+              if len(resources) == 0:
+                  return None
+              resource_arn = resources[0]
+              if not isinstance(resource_arn, str):
+                  return None
+              if not ARN_PATTERN.match(resource_arn):
+                  return None
+              return resource_arn
+
+
+          def _lookup_compliance_record(resource_arn):
+              """Look up a resource's compliance record in DynamoDB."""
+              if _compliance_table is None:
+                  log_event(
+                      event_outcome="failed",
+                      resource_arn=resource_arn,
+                      error_message="COMPLIANCE_TABLE_NAME environment variable not set",
+                  )
+                  return None
+              try:
+                  response = _compliance_table.get_item(Key={"resource_arn": resource_arn})
+              except (ClientError, Exception) as exc:
+                  error_msg = str(exc)
+                  if isinstance(exc, ClientError):
+                      error_msg = exc.response["Error"].get("Message", str(exc))
+                  log_event(
+                      event_outcome="failed",
+                      resource_arn=resource_arn,
+                      error_message=f"DynamoDB lookup error: {error_msg}",
+                  )
+                  return None
+              item = response.get("Item")
+              if item is None:
+                  log_event(
+                      event_outcome="skipped",
+                      resource_arn=resource_arn,
+                      skip_reason="unmonitored",
+                  )
+                  return None
+              return item.get("required_tags", {})
+
+
+          def _is_compliant(current_tags, required_tags):
+              """Check if current tags satisfy all required tags."""
+              for key, value in required_tags.items():
+                  if current_tags.get(key) != value:
+                      return False
+              return True
+
+
+          def _tag_resources_with_retry(resource_arn, required_tags):
+              """Call tag_resources with exponential backoff retry logic."""
+              last_exception = None
+              for attempt in range(MAX_ATTEMPTS):
+                  try:
+                      _tagging_client.tag_resources(
+                          ResourceARNList=[resource_arn],
+                          Tags=required_tags,
+                      )
+                      return None
+                  except ClientError as exc:
+                      error_code = exc.response["Error"].get("Code", "")
+                      error_msg = exc.response["Error"].get("Message", str(exc))
+                      last_exception = exc
+                      if error_code in NON_RETRYABLE_ERROR_CODES:
+                          log_event(
+                              event_outcome="failed",
+                              resource_arn=resource_arn,
+                              error_message=f"tag_resources error: {error_msg}",
+                              retry_count=attempt,
+                          )
+                          return {"statusCode": 200, "body": "Failed: remediation error"}
+                      if attempt < MAX_ATTEMPTS - 1:
+                          time.sleep(BACKOFF_SCHEDULE[attempt])
+                  except Exception as exc:
+                      last_exception = exc
+                      if attempt < MAX_ATTEMPTS - 1:
+                          time.sleep(BACKOFF_SCHEDULE[attempt])
+
+              error_msg = str(last_exception)
+              if isinstance(last_exception, ClientError):
+                  error_msg = last_exception.response["Error"].get("Message", str(last_exception))
+              log_event(
+                  event_outcome="failed",
+                  resource_arn=resource_arn,
+                  error_message=f"tag_resources error: {error_msg}",
+                  retry_count=MAX_ATTEMPTS - 1,
+              )
+              raise last_exception
+
+  # ========================================
+  # EventBridge Rule for Tag Change Events
+  # ========================================
+
+  TagChangeEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-TagChangeEventRule'
+      Description: Routes tag change events from CloudTrail to the Remediation Lambda
+      EventPattern:
+        source:
+          - aws.tag
+        detail-type:
+          - Tag Change on Resource
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt RemediationLambdaFunction.Arn
+          Id: RemediationLambdaTarget
+          DeadLetterConfig:
+            Arn: !GetAtt DeadLetterQueue.Arn
+
+  # ========================================
+  # Lambda Invoke Permission for EventBridge
+  # ========================================
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RemediationLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt TagChangeEventRule.Arn
+
+  # ========================================
+  # CloudTrail S3 Bucket
+  # ========================================
+
+  CloudTrailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-cloudtrail-logs-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ========================================
+  # CloudTrail Bucket Policy
+  # ========================================
+
+  CloudTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudTrailBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${CloudTrailBucket}'
+              - !Sub 'arn:${AWS::Partition}:s3:::${CloudTrailBucket}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          - Sid: AllowCloudTrailGetBucketAcl
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: 's3:GetBucketAcl'
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${CloudTrailBucket}'
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Sub '${AWS::AccountId}'
+          - Sid: AllowCloudTrailPutObject
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: 's3:PutObject'
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${CloudTrailBucket}/AWSLogs/${AWS::AccountId}/*'
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': 'bucket-owner-full-control'
+                'aws:SourceAccount': !Sub '${AWS::AccountId}'
+
+  # ========================================
+  # CloudTrail Trail
+  # ========================================
+
+  CloudTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: CloudTrailBucketPolicy
+    Properties:
+      TrailName: !Sub '${AWS::StackName}-Trail'
+      IsLogging: true
+      IsMultiRegionTrail: true
+      IncludeGlobalServiceEvents: true
+      EnableLogFileValidation: true
+      S3BucketName: !Ref CloudTrailBucket
+
+Outputs:
+  ComplianceRegistryTableName:
+    Description: Name of the DynamoDB Compliance Registry table
+    Value: !Ref ComplianceRegistryTable
+
+  ComplianceRegistryTableArn:
+    Description: ARN of the DynamoDB Compliance Registry table
+    Value: !GetAtt ComplianceRegistryTable.Arn
+
+  RemediationLambdaFunctionArn:
+    Description: ARN of the Remediation Lambda function
+    Value: !GetAtt RemediationLambdaFunction.Arn
+
+  DeadLetterQueueArn:
+    Description: ARN of the SQS Dead-Letter Queue
+    Value: !GetAtt DeadLetterQueue.Arn
+
+  DeadLetterQueueUrl:
+    Description: URL of the SQS Dead-Letter Queue
+    Value: !Ref DeadLetterQueue
+
+  TagChangeEventRuleArn:
+    Description: ARN of the EventBridge Tag Change Event Rule
+    Value: !GetAtt TagChangeEventRule.Arn
+
+  CloudTrailArn:
+    Description: ARN of the CloudTrail Trail
+    Value: !GetAtt CloudTrail.Arn
