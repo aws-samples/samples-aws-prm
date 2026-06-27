@@ -1,0 +1,70 @@
+# Sample partner workload with the PRM attribution sidecar attached.
+#
+# The sidecar is declared as a NATIVE SIDECAR — an init container with
+# restartPolicy: Always (stable since Kubernetes 1.28). This guarantees it:
+#   - starts before the app container,
+#   - runs for the whole life of the pod, and
+#   - is torn down cleanly with the pod,
+# while never gating the pod on its completion. The application container is the
+# primary workload; the sidecar only attributes node compute and must not affect
+# the app (it fails closed — see touch-loop.sh).
+#
+# Because attribution rides with the pod, the sidecar touches exactly the nodes
+# this partner's workload runs on, which is what PRM's even-split rule requires.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+  namespace: prm-sidecar
+  labels:
+    app: sample-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-app
+  template:
+    metadata:
+      labels:
+        app: sample-app
+    spec:
+      serviceAccountName: prm-sidecar-sa
+      initContainers:
+        # ---- PRM attribution sidecar (native sidecar) ----
+        - name: prm-sidecar
+          image: __SIDECAR_IMAGE__
+          restartPolicy: Always   # makes this init container a long-running sidecar
+          env:
+            - name: AWS_SDK_UA_APP_ID
+              value: "__APP_ID__"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: AWS_REGION
+              value: "__REGION__"
+            # TESTING ONLY: when > 0, the sidecar touches every N seconds instead
+            # of once per calendar month so you can observe activity quickly. PRM
+            # only requires one touch per node ARN per calendar month — leave this
+            # at 0 (disabled) for any real deployment. Rendered by deploy.sh.
+            - name: TEST_INTERVAL_SECONDS
+              value: "__TEST_INTERVAL_SECONDS__"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "256Mi"
+      containers:
+        # ---- The partner's actual application (placeholder) ----
+        - name: app
+          image: public.ecr.aws/docker/library/busybox:latest
+          command: ["sh", "-c", "echo 'sample app running'; while true; do sleep 3600; done"]
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "50m"
+              memory: "64Mi"
