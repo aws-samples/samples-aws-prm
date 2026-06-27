@@ -1,0 +1,190 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Self-contained stack for the PRM User-Agent DaemonSet pattern (partitioned
+  compute). Deploys an EKS cluster in Auto Mode plus a dedicated IAM role and
+  EKS Pod Identity association for the DaemonSet workload, so one pod per node
+  attributes that node's EC2 compute to a partner product code via the SDK
+  User-Agent.
+
+Parameters:
+  ClusterName:
+    Type: String
+    Default: prm-daemonset
+    Description: Name of the EKS cluster
+
+  KubernetesVersion:
+    Type: String
+    Default: '1.36'
+    Description: Kubernetes control plane version
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >-
+      Subnets where EKS Auto Mode deploys nodes (provide at least two in
+      different Availability Zones; you may use your default VPC subnets)
+
+  WorkloadNamespace:
+    Type: String
+    Default: prm-daemonset
+    Description: Kubernetes namespace for the DaemonSet workload
+
+  WorkloadServiceAccount:
+    Type: String
+    Default: prm-daemonset-sa
+    Description: Kubernetes service account the DaemonSet runs as
+
+  RepositoryName:
+    Type: String
+    Default: prm-daemonset
+    Description: Name of the ECR repository for the DaemonSet image
+
+Resources:
+  # ========================================
+  # ECR repository for the DaemonSet image
+  # ========================================
+  # EmptyOnDelete lets `delete-stack` remove the repository even if it still
+  # contains pushed images, so the repo shares the stack's lifecycle.
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  # ========================================
+  # Cluster IAM Role
+  # ========================================
+  ClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-cluster-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSComputePolicy
+        - arn:aws:iam::aws:policy/AmazonEKSBlockStoragePolicy
+        - arn:aws:iam::aws:policy/AmazonEKSLoadBalancingPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSNetworkingPolicy
+
+  # ========================================
+  # Node IAM Role
+  # ========================================
+  NodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-node-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodeMinimalPolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly
+
+  # ========================================
+  # EKS Auto Mode Cluster
+  # ========================================
+  Cluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref ClusterName
+      Version: !Ref KubernetesVersion
+      RoleArn: !GetAtt ClusterRole.Arn
+      ResourcesVpcConfig:
+        SubnetIds: !Ref SubnetIds
+        EndpointPublicAccess: true
+        EndpointPrivateAccess: true
+      AccessConfig:
+        AuthenticationMode: API
+      ComputeConfig:
+        Enabled: true
+        NodeRoleArn: !GetAtt NodeRole.Arn
+        NodePools:
+          - general-purpose
+          - system
+      KubernetesNetworkConfig:
+        ElasticLoadBalancing:
+          Enabled: true
+      StorageConfig:
+        BlockStorage:
+          Enabled: true
+
+  # ========================================
+  # DaemonSet workload IAM role + Pod Identity (dedicated to this pattern)
+  # ========================================
+  # Read-only EC2 describe permissions used to "touch" each node's instance ARN
+  # with the partner product code in the User-Agent.
+  DaemonSetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-daemonset-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEksAuthToAssumeRoleForPodIdentity
+            Effect: Allow
+            Principal:
+              Service: pods.eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+      Policies:
+        - PolicyName: describe-instance-attribute
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DescribeInstanceAttribute
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstanceAttribute
+                  - ec2:DescribeInstances
+                Resource: '*'
+
+  # Binds the DaemonSet's own service account to its own IAM role.
+  DaemonSetPodIdentity:
+    Type: AWS::EKS::PodIdentityAssociation
+    Properties:
+      ClusterName: !Ref Cluster
+      Namespace: !Ref WorkloadNamespace
+      ServiceAccount: !Ref WorkloadServiceAccount
+      RoleArn: !GetAtt DaemonSetRole.Arn
+
+Outputs:
+  ClusterName:
+    Description: Name of the EKS Auto Mode cluster
+    Value: !Ref Cluster
+
+  ClusterArn:
+    Description: ARN of the EKS cluster
+    Value: !GetAtt Cluster.Arn
+
+  UpdateKubeconfigCommand:
+    Description: Command to configure kubectl for this cluster
+    Value: !Sub 'aws eks update-kubeconfig --name ${Cluster} --region ${AWS::Region}'
+
+  DaemonSetRoleArn:
+    Description: ARN of the DaemonSet IAM role
+    Value: !GetAtt DaemonSetRole.Arn
+
+  DaemonSetPodIdentityArn:
+    Description: ARN of the DaemonSet EKS Pod Identity association
+    Value: !GetAtt DaemonSetPodIdentity.AssociationArn
+
+  EcrRepositoryUri:
+    Description: URI of the ECR repository for the DaemonSet image
+    Value: !GetAtt EcrRepository.RepositoryUri
