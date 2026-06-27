@@ -2,3 +2,7 @@ amazon-ospo-ruleset.json
 .DS_Store
 
 .kiro/
+
+# Python bytecode (regenerated on import)
+__pycache__/
+*.pyc
