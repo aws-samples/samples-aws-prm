@@ -1,0 +1,30 @@
+# RBAC for the controller: it needs to LIST pods (to find the partner's pods and
+# the nodes they run on) and optionally read nodes. Read-only, cluster-scoped
+# because pods may be targeted across namespaces.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prm-controller-sa
+  namespace: prm-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prm-controller-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prm-controller-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prm-controller-reader
+subjects:
+  - kind: ServiceAccount
+    name: prm-controller-sa
+    namespace: prm-controller

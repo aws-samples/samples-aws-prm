@@ -1,0 +1,54 @@
+# The PRM attribution controller: a single replica that watches the partner's
+# pods and touches the distinct nodes they run on, once per calendar month.
+#
+# Unlike the DaemonSet, this is NOT one pod per node — it is one controller for
+# the whole cluster that computes the exact set of nodes the partner uses. This is
+# the minimal-call, no-over-attribution form (see ../DESIGN.md).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prm-controller
+  namespace: prm-controller
+  labels:
+    app: prm-controller
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate   # single active controller; avoid two running at once
+  selector:
+    matchLabels:
+      app: prm-controller
+  template:
+    metadata:
+      labels:
+        app: prm-controller
+    spec:
+      serviceAccountName: prm-controller-sa
+      containers:
+        - name: controller
+          image: __CONTROLLER_IMAGE__
+          env:
+            - name: AWS_SDK_UA_APP_ID
+              value: "__APP_ID__"
+            - name: AWS_REGION
+              value: "__REGION__"
+            # Scope which pods count as "this partner's workload". Empty values
+            # mean all pods in all namespaces. Rendered by deploy.sh.
+            - name: TARGET_NAMESPACE
+              value: "__TARGET_NAMESPACE__"
+            - name: TARGET_LABEL_SELECTOR
+              value: "__TARGET_LABEL_SELECTOR__"
+            - name: RESCAN_INTERVAL_SECONDS
+              value: "__RESCAN__"
+            # TESTING ONLY: when > 0, re-touch every node on each scan (bypassing
+            # the once-per-calendar-month de-duplication) and scan this often. PRM
+            # only requires one touch per node ARN per month — leave 0 for production.
+            - name: TEST_INTERVAL_SECONDS
+              value: "__TEST_INTERVAL_SECONDS__"
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
