@@ -1,0 +1,83 @@
+# CronJob that runs the aws-cli container on a schedule. On each run it:
+#   1. Resolves the EC2 instance ID of the node it is scheduled on (passed in
+#      via the Downward API as the node name, then looked up with DescribeInstances).
+#   2. Calls ec2:DescribeInstanceAttribute for the `instanceType` attribute.
+#   3. Emits the result to stdout (visible via `kubectl logs`).
+#
+# Every AWS API call carries the PRM partner product code in its User-Agent via
+# the AWS_SDK_UA_APP_ID environment variable, so the calls are attributed to the
+# partner product under AWS Partner Revenue Measurement (PRM).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: describe-instance-attribute
+  namespace: prm-demo
+spec:
+  # __SCHEDULE__ is substituted by deploy.sh.
+  # NOTE: defaults to every minute ("* * * * *") FOR TESTING ONLY so you can see
+  # runs quickly. PRM only requires ONE API call against the node's instance ARN
+  # per CALENDAR MONTH — in a real deployment use a monthly schedule (e.g.
+  # "0 0 1 * *"). See README "Schedule and PRM cadence".
+  schedule: "__SCHEDULE__"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: describe-instance-sa
+          restartPolicy: Never
+          containers:
+            - name: describe
+              image: public.ecr.aws/aws-cli/aws-cli:latest
+              env:
+                # PRM User-Agent attribution. __APP_ID__ is substituted by deploy.sh
+                # in the form: APN_1.1/pc_<PRODUCT-CODE>$
+                - name: AWS_SDK_UA_APP_ID
+                  value: "__APP_ID__"
+                # The node this pod landed on, provided by the Downward API.
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: AWS_REGION
+                  value: "__REGION__"
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  echo "User-Agent app id: ${AWS_SDK_UA_APP_ID}"
+                  echo "Node name: ${NODE_NAME}"
+                  # On EKS Auto Mode the node name is already the EC2 instance ID
+                  # (e.g. i-0abc...). Otherwise (e.g. a private DNS name) resolve it
+                  # via DescribeInstances.
+                  case "${NODE_NAME}" in
+                    i-*)
+                      INSTANCE_ID="${NODE_NAME}"
+                      ;;
+                    *)
+                      INSTANCE_ID=$(aws ec2 describe-instances \
+                        --filters "Name=private-dns-name,Values=${NODE_NAME}" \
+                        --query 'Reservations[0].Instances[0].InstanceId' \
+                        --output text)
+                      ;;
+                  esac
+                  if [ -z "${INSTANCE_ID}" ] || [ "${INSTANCE_ID}" = "None" ]; then
+                    echo "Could not resolve instance ID for node ${NODE_NAME}" >&2
+                    exit 1
+                  fi
+                  echo "Instance ID: ${INSTANCE_ID}"
+                  echo "Calling DescribeInstanceAttribute (instanceType)..."
+                  aws ec2 describe-instance-attribute \
+                    --instance-id "${INSTANCE_ID}" \
+                    --attribute instanceType
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "250m"
+                  memory: "256Mi"

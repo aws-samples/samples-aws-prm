@@ -1,0 +1,177 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Deploy a default Amazon EKS cluster in Auto Mode. Creates the Cluster and Node
+  IAM roles and an EKS Auto Mode cluster with the general-purpose and system node
+  pools, managed networking, and managed block storage enabled. Also provisions
+  the IAM role and EKS Pod Identity association for the PRM
+  DescribeInstanceAttribute CronJob workload.
+
+Parameters:
+  ClusterName:
+    Type: String
+    Default: prm-auto-mode
+    Description: Name of the EKS cluster
+
+  KubernetesVersion:
+    Type: String
+    Default: '1.36'
+    Description: Kubernetes control plane version
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >-
+      Subnets where EKS Auto Mode deploys nodes (provide at least two in
+      different Availability Zones; you may use your default VPC subnets)
+
+  WorkloadNamespace:
+    Type: String
+    Default: prm-demo
+    Description: Kubernetes namespace for the DescribeInstanceAttribute workload
+
+  WorkloadServiceAccount:
+    Type: String
+    Default: describe-instance-sa
+    Description: Kubernetes service account associated with the workload IAM role
+
+Resources:
+  # ========================================
+  # Cluster IAM Role
+  # ========================================
+  ClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-cluster-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSComputePolicy
+        - arn:aws:iam::aws:policy/AmazonEKSBlockStoragePolicy
+        - arn:aws:iam::aws:policy/AmazonEKSLoadBalancingPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSNetworkingPolicy
+
+  # ========================================
+  # Node IAM Role
+  # ========================================
+  NodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-node-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodeMinimalPolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly
+
+  # ========================================
+  # EKS Auto Mode Cluster
+  # ========================================
+  Cluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref ClusterName
+      Version: !Ref KubernetesVersion
+      RoleArn: !GetAtt ClusterRole.Arn
+      ResourcesVpcConfig:
+        SubnetIds: !Ref SubnetIds
+        EndpointPublicAccess: true
+        EndpointPrivateAccess: true
+      # Auto Mode requires API access entries for authentication
+      AccessConfig:
+        AuthenticationMode: API
+      # computeConfig.enabled lets EKS Auto Mode manage EC2 instances
+      ComputeConfig:
+        Enabled: true
+        NodeRoleArn: !GetAtt NodeRole.Arn
+        NodePools:
+          - general-purpose
+          - system
+      # Managed load balancing (creates/deletes ELBs)
+      KubernetesNetworkConfig:
+        ElasticLoadBalancing:
+          Enabled: true
+      # Managed block storage (creates/deletes EBS volumes)
+      StorageConfig:
+        BlockStorage:
+          Enabled: true
+
+  # ========================================
+  # Workload IAM role + Pod Identity (PRM DescribeInstanceAttribute CronJob)
+  # ========================================
+  # IAM role assumed by EKS Pod Identity on behalf of the workload service account
+  DescribeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-describe-instance-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEksAuthToAssumeRoleForPodIdentity
+            Effect: Allow
+            Principal:
+              Service: pods.eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+      Policies:
+        - PolicyName: describe-instance-attribute
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DescribeInstanceAttribute
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstanceAttribute
+                  - ec2:DescribeInstances
+                Resource: '*'
+
+  # Binds the workload service account (namespace + name) to the IAM role.
+  # The Pod Identity agent is pre-installed on EKS Auto Mode clusters. The
+  # association matches by name, so it can exist before the service account does.
+  DescribeInstancePodIdentity:
+    Type: AWS::EKS::PodIdentityAssociation
+    Properties:
+      ClusterName: !Ref Cluster
+      Namespace: !Ref WorkloadNamespace
+      ServiceAccount: !Ref WorkloadServiceAccount
+      RoleArn: !GetAtt DescribeInstanceRole.Arn
+
+Outputs:
+  ClusterName:
+    Description: Name of the EKS Auto Mode cluster
+    Value: !Ref Cluster
+
+  ClusterArn:
+    Description: ARN of the EKS cluster
+    Value: !GetAtt Cluster.Arn
+
+  ClusterEndpoint:
+    Description: Kubernetes API server endpoint
+    Value: !GetAtt Cluster.Endpoint
+
+  UpdateKubeconfigCommand:
+    Description: Command to configure kubectl for this cluster
+    Value: !Sub 'aws eks update-kubeconfig --name ${Cluster} --region ${AWS::Region}'
+
+  DescribeInstanceRoleArn:
+    Description: ARN of the workload IAM role bound to the service account
+    Value: !GetAtt DescribeInstanceRole.Arn
+
+  DescribeInstancePodIdentityArn:
+    Description: ARN of the EKS Pod Identity association for the workload
+    Value: !GetAtt DescribeInstancePodIdentity.AssociationArn
