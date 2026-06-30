@@ -26,8 +26,8 @@
 #   --selector KEY=VALUE    nodeSelector for the partner's dedicated nodes
 #                           (default: prm-partner=this-partner)
 #   --all-nodes             Run on ALL nodes (removes the nodeSelector). NOT
-#                           recommended for intermixed multi-tenant clusters —
-#                           see ../DESIGN.md.
+#                           recommended for intermixed multi-tenant clusters; it
+#                           touches nodes the partner does not use.
 #   --container-cli CLI     Container CLI for build/push: docker or finch (default: docker)
 #   --test-interval SECS    TESTING ONLY: touch every SECS seconds instead of once
 #                           per calendar month (default: 0 = monthly, production).

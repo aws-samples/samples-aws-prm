@@ -12,7 +12,7 @@ Measurement (PRM) for a containerized workload in EKS.
 > only the one node the CronJob pod happens to land on, so it does **not** solve
 > multi-tenant, per-node, monthly attribution. For that, see the
 > [`../sidecar/`](../sidecar/), [`../controller/`](../controller/), and
-> [`../daemonset/`](../daemonset/) patterns and the rationale in [`../DESIGN.md`](../DESIGN.md).
+> [`../daemonset/`](../daemonset/) patterns.
 
 > **Sample code — not production-ready.** Review IAM scope, scheduling, and image
 > pinning before any real use.

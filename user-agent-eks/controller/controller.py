@@ -8,7 +8,7 @@ Watches a partner's pods, derives the DISTINCT set of EC2 nodes those pods run
 on, and touches each node's instance ARN exactly once per CALENDAR MONTH by
 calling ec2:DescribeInstanceAttribute with the partner product code in the SDK
 User-Agent. This is the de-duplicated, minimal-call form of the attribution
-patterns (see ../DESIGN.md):
+patterns:
 
   - Touches only nodes the partner actually runs on (correct under PRM even-split;
     no over-attribution).

@@ -28,18 +28,17 @@ language SDK or CLI the container uses.
 
 | File | Description |
 |---|---|
-| [`DESIGN.md`](./DESIGN.md) | Design decision record: how to attribute node compute via User-Agent in a **multi-tenant** cluster, how PRM's even-split rule shapes the options, and the tradeoffs of each pattern. |
 | [`cronjob/`](./cronjob/) | **Single-instance demo.** A CloudFormation cluster stack (`eks-auto-mode-cluster.yaml`) plus a scheduled **CronJob** that runs an `aws-cli` container calling `ec2:DescribeInstanceAttribute`, with the PRM partner product code injected into the SDK User-Agent. Proves the User-Agent plumbing end-to-end; touches only the one node its pod lands on, so see the other patterns for full coverage. |
 | [`sidecar/`](./sidecar/) | A native sidecar that rides alongside a partner's workload and touches the EC2 node it runs on once per calendar month, so attribution follows the partner's pods. Self-contained CloudFormation stack (cluster + dedicated sidecar IAM/Pod Identity) plus image and manifests. |
 | [`controller/`](./controller/) | A single controller that watches the partner's pods, derives the distinct set of nodes they run on, and touches each once per calendar month — no redundant calls, no per-pod coupling. Self-contained stack + image + manifests. |
-| [`daemonset/`](./daemonset/) | One pod per node via a `nodeSelector` on the partner's dedicated node pool — suited to partitioned compute. Self-contained stack + image + manifests. See `DESIGN.md` for why this fits partitioned rather than intermixed compute. |
+| [`daemonset/`](./daemonset/) | One pod per node via a `nodeSelector` on the partner's dedicated node pool — suited to partitioned (not intermixed) compute. Self-contained stack + image + manifests. |
 
 ## Choosing a pattern
 
 All patterns make the same underlying call — `ec2:DescribeInstanceAttribute` against a
 node's instance ARN, with the PRM product code in the User-Agent, once per calendar month.
 They differ in **which nodes** they touch and **how**. Under PRM's even-split rule, the
-goal is to touch exactly the nodes the partner actually runs on (see [`DESIGN.md`](./DESIGN.md)).
+goal is to touch exactly the nodes the partner actually runs on.
 The right choice depends on your environment — there is no single best pattern.
 
 | Pattern | Fits | Coverage of "nodes I use" | Over-attribution risk | Per-pod coupling | Footprint | Complexity |

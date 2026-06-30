@@ -4,7 +4,7 @@
 # scheduling rules. Each pod touches its own node's EC2 instance ARN at startup
 # and once per calendar month (see touch-loop.sh).
 #
-# CORRECTNESS / SCOPING (see ../DESIGN.md):
+# CORRECTNESS / SCOPING:
 #   A DaemonSet runs on every node it is allowed to schedule on. In a multi-tenant
 #   cluster with INTERMIXED compute this over-attributes — you would touch nodes
 #   you do not actually use and take even-split share from the partners who do.

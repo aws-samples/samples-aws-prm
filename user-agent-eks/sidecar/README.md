@@ -1,6 +1,6 @@
 # Sidecar Attribution (multi-tenant)
 
-A pattern from [`../DESIGN.md`](../DESIGN.md) for attributing EC2 node compute to a
+A pattern for attributing EC2 node compute to a
 partner's PRM product code in a **multi-tenant** EKS cluster.
 
 A sidecar container runs alongside the partner's own workload pods. Because attribution
@@ -24,15 +24,15 @@ Partner pod
   └─ app container (the partner's real workload — always takes priority)
 ```
 
-Key design points (rationale in [`../DESIGN.md`](../DESIGN.md)):
+Key design points:
 
 - **Calendar-month cadence.** Touch on startup, then once after each calendar-month
   boundary. PRM evaluates coverage per calendar month, so the loop aligns to the boundary
   rather than using a 30-day timer that could drift past a month.
 - **One touch per node per month is enough.** Even-split counts each product code once per
   ARN per month regardless of touch count, so co-located pods touching the same node are
-  redundant but harmless. No cross-pod de-duplication is attempted (that is the future
-  "controller" pattern noted in `DESIGN.md`).
+  redundant but harmless. No cross-pod de-duplication is attempted (that is the
+  [`../controller/`](../controller/) pattern).
 - **Fails closed.** PRM supports EC2 nodes only. If the sidecar cannot resolve an EC2
   instance ID, or an API call fails, it **logs and idles** — it never crash-loops and never
   disrupts the application container.

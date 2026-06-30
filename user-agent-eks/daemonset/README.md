@@ -4,7 +4,7 @@ A **DaemonSet** that runs one attribution pod per node. Each pod touches its own
 EC2 instance ARN at startup and once per calendar month, with the partner product code in
 the SDK User-Agent (`AWS_SDK_UA_APP_ID`).
 
-> **Use only for PARTITIONED compute.** See [`../DESIGN.md`](../DESIGN.md). A DaemonSet
+> **Use only for PARTITIONED compute.** A DaemonSet
 > runs on every node it is allowed to schedule on. In a multi-tenant cluster with
 > **intermixed** compute this **over-attributes** — it touches nodes the partner does not
 > use and takes even-split share from the partners who do, violating PRM's "calls directly

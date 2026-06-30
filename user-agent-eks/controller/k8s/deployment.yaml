@@ -3,7 +3,7 @@
 #
 # Unlike the DaemonSet, this is NOT one pod per node — it is one controller for
 # the whole cluster that computes the exact set of nodes the partner uses. This is
-# the minimal-call, no-over-attribution form (see ../DESIGN.md).
+# the minimal-call, no-over-attribution form.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

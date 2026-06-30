@@ -5,8 +5,7 @@ pods, computes the **distinct set of EC2 nodes** those pods run on, and touches 
 node's instance ARN **exactly once per calendar month** with the partner product code in
 the SDK User-Agent (`AWS_SDK_UA_APP_ID`).
 
-This is the de-duplicated, minimal-call form of the attribution patterns (see
-[`../DESIGN.md`](../DESIGN.md)). Compared to the [`../sidecar/`](../sidecar/) pattern it:
+This is the de-duplicated, minimal-call form of the attribution patterns. Compared to the [`../sidecar/`](../sidecar/) pattern it:
 
 - makes **no redundant calls** — one touch per (node, month) regardless of how many of the
   partner's pods share a node, and
@@ -31,7 +30,7 @@ Controller (1 replica)
   └─ re-scan every RESCAN_INTERVAL_SECONDS to pick up churn; re-touch all at month rollover
 ```
 
-Behavior matches the resolved decisions in `DESIGN.md`: calendar-month cadence, one touch
+Behavior: calendar-month cadence, one touch
 per node per month, EC2 nodes only, and failures are logged without crashing the loop.
 
 ## Pros and cons

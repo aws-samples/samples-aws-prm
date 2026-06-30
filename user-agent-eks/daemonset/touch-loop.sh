@@ -8,7 +8,7 @@
 # the node's compute to the product code, even-split across all partners that
 # touch the same ARN within a calendar month.
 #
-# Behavior (see ../DESIGN.md):
+# Behavior:
 #   - Touch once on startup, then once at the start of each new CALENDAR month.
 #   - One touch per node per month is sufficient (even-split counts distinct
 #     partners, not touch count).
@@ -20,7 +20,7 @@
 # cluster with INTERMIXED compute this OVER-ATTRIBUTES (you would touch nodes you
 # do not use, stealing even-split share from other partners). This pattern is only
 # correct when the DaemonSet is restricted (via nodeSelector/affinity) to a node
-# pool DEDICATED to this partner. See ../DESIGN.md.
+# pool DEDICATED to this partner.
 #
 # PRM CADENCE — IMPORTANT:
 #   PRM only REQUIRES one successful API call against a given resource ARN per

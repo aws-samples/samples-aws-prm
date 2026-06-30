@@ -8,7 +8,7 @@
 # product code, even-split across all partners that touch the same ARN within a
 # calendar month.
 #
-# Behavior (see ../DESIGN.md):
+# Behavior:
 #   - Touch once on startup, then once at the start of each new CALENDAR month.
 #   - One touch per node per month is sufficient (even-split counts distinct
 #     partners, not touch count), so no cross-pod de-duplication is attempted.
